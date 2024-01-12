@@ -11,6 +11,5 @@ public class FrameRunner {
     f.setVisible(true);
     p.setFocusable(true);
 	  p.requestFocusInWindow();
-    p.run();
   }
 }

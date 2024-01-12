@@ -1,22 +1,25 @@
-import java.awt.image.BufferedImage;
-import java.io.IOException;
-import java.io.File;
-import javax.imageio.ImageIO;
-import java.awt.*;
-import javax.swing.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+
+import javax.imageio.ImageIO;
+import javax.swing.JPanel;
 
 public class ImageEditorPanel extends JPanel implements KeyListener, MouseListener {
-
-    Color[][] pixels;
-    int fps = 30;
-    final int DISPLAY_HEIGHT = 100;
-    final int DISPLAY_WIDTH = 255;
-    final int BUFFER_SPACE = 25;
-
+    private Color[][] pixels;
+    private static final int DISPLAY_HEIGHT = 100;
+    private static final int DISPLAY_WIDTH = 255;
+    private static final int BUFFER_SPACE = 25;
+    private static final int BLUR_RADIUS = 5;
+    private static final double CONTRAST_FACTOR = 0.1;
+    
     public ImageEditorPanel() {
         BufferedImage imageIn = null;
         try {
@@ -36,17 +39,21 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
 
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
+        drawPixels(g);
+        drawHistogram(g);
+    }
+
+    private void drawPixels(Graphics g) {
         for (int row = 0; row < pixels.length; row++) {
             for (int col = 0; col < pixels[0].length; col++) {
                 g.setColor(pixels[row][col]);
                 g.fillRect(col, row, 1, 1);
             }
         }
-        displayHist(g);
     }
 
-    public void displayHist(Graphics g) {
-        int[] hist = brightnessHist(pixels);
+    private void drawHistogram(Graphics g) {
+        int[] hist = brightnessHistogram(pixels);
         int max = 0;
         g.setColor(Color.GRAY);
         g.fillRect(this.getWidth() - DISPLAY_WIDTH, BUFFER_SPACE, DISPLAY_WIDTH, DISPLAY_HEIGHT);
@@ -61,26 +68,22 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
         }
     }
 
-    public Color[][] applyVintageFilter(Color[][] pixels) {
+    public Color[][] applyVintageFilter(Color[][] originalPixels) {
+        pixels = grayScale(originalPixels);
         Color[][] vintagePixels = new Color[pixels.length][pixels[0].length];
-
-        for (int i = 0; i < pixels.length; i++) {
+        for (int i = 0; i < pixels.length; i++)
             for (int j = 0; j < pixels[0].length; j++) {
                 Color originalColor = pixels[i][j];
-
-                int red = (int) (originalColor.getRed() * 1.2);
-                int green = (int) (originalColor.getGreen() * 0.9);
-                int blue = (int) (originalColor.getBlue() * 0.8);
-
-                red = Math.min(255, Math.max(0, red));
-                green = Math.min(255, Math.max(0, green));
-                blue = Math.min(255, Math.max(0, blue));
-
+                int red = clamp((int) (originalColor.getRed() * 1.2), 0, 255);
+                int green = clamp((int) (originalColor.getGreen() * 0.9), 0, 255);
+                int blue = clamp((int) (originalColor.getBlue() * 0.8), 0, 255);
                 vintagePixels[i][j] = new Color(red, green, blue);
             }
-        }
-
         return vintagePixels;
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.min(max, Math.max(min, value));
     }
 
     public int barHeight(int max, int value, int displayHeight) {
@@ -146,20 +149,20 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
         return result;
     }
 
-    public Color[][] gaussianBlur(Color[][] pixels, int blurRadius) {
+    public Color[][] gaussianBlur(Color[][] pixels) {
         Color[][] result = new Color[pixels.length][pixels[0].length];
-        double[][] kernel = gaussianKernel(blurRadius);
+        double[][] kernel = gaussianKernel();
 
         for (int i = 0; i < pixels.length; i++) {
             for (int j = 0; j < pixels[0].length; j++) {
                 double red = 0, blue = 0, green = 0;
 
-                for (int p = -blurRadius; p <= blurRadius; p++) {
-                    for (int k = -blurRadius; k <= blurRadius; k++) {
+                for (int p = -BLUR_RADIUS; p <= BLUR_RADIUS; p++) {
+                    for (int k = -BLUR_RADIUS; k <= BLUR_RADIUS; k++) {
                         int x = Math.min(Math.max(i + p, 0), pixels.length - 1);
                         int y = Math.min(Math.max(j + k, 0), pixels[0].length - 1);
 
-                        double weight = kernel[p + blurRadius][k + blurRadius];
+                        double weight = kernel[p + BLUR_RADIUS][k + BLUR_RADIUS];
                         red += pixels[x][y].getRed() * weight;
                         blue += pixels[x][y].getBlue() * weight;
                         green += pixels[x][y].getGreen() * weight;
@@ -173,19 +176,19 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
         return result;
     }
 
-    private double[][] gaussianKernel(int blurRadius) {
-        int diameter = 2 * blurRadius + 1;
+    private double[][] gaussianKernel() {
+        int diameter = 2 * BLUR_RADIUS + 1;
         double[][] kernel = new double[diameter][diameter];
-        double sigma = blurRadius / 3.0;
+        double sigma = BLUR_RADIUS / 3.0;
 
         double sum = 0;
 
         // based off of the equation
-        for (int i = -blurRadius; i <= blurRadius; i++) {
-            for (int j = -blurRadius; j <= blurRadius; j++) {
+        for (int i = -BLUR_RADIUS; i <= BLUR_RADIUS; i++) {
+            for (int j = -BLUR_RADIUS; j <= BLUR_RADIUS; j++) {
                 double exponent = -(i * i + j * j) / (2 * sigma * sigma);
-                kernel[i + blurRadius][j + blurRadius] = Math.exp(exponent) / (2 * Math.PI * sigma * sigma);
-                sum += kernel[i + blurRadius][j + blurRadius];
+                kernel[i + BLUR_RADIUS][j + BLUR_RADIUS] = Math.exp(exponent) / (2 * Math.PI * sigma * sigma);
+                sum += kernel[i + BLUR_RADIUS][j + BLUR_RADIUS];
             }
         }
 
@@ -199,31 +202,31 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
         return kernel;
     }
 
-    public Color[][] contrast(Color[][] pixels, double contrastFactor) {
+    public Color[][] contrast(Color[][] pixels) {
         Color[][] result = new Color[pixels.length][pixels[0].length];
         for (int i = 0; i < pixels.length; i++) {
             for (int j = 0; j < result[0].length; j++) {
                 int red = pixels[i][j].getRed(), green = pixels[i][j].getGreen(), blue = pixels[i][j].getBlue();
-                int newRed = (int) Math.max(0, Math.min(255, red * conWeight(red, contrastFactor)));
-                int newGreen = (int) Math.max(0, Math.min(255, green * conWeight(green, contrastFactor)));
-                int newBlue = (int) Math.max(0, Math.min(255, blue * conWeight(blue, contrastFactor)));
+                int newRed = (int) Math.max(0, Math.min(255, red * contrastWeight(red)));
+                int newGreen = (int) Math.max(0, Math.min(255, green * contrastWeight(green)));
+                int newBlue = (int) Math.max(0, Math.min(255, blue * contrastWeight(blue)));
                 result[i][j] = new Color(newRed, newGreen, newBlue);
             }
         }
         return result;
     }
 
-    public double conWeight(int value, double contrastFactor) {
+    public double contrastWeight(int value) {
         double error = Math.abs(((255 / 2.0) - value) / (225 / 2.0));
         if (value > 128) {
-            return 1 - error * contrastFactor;
+            return 1 - error * CONTRAST_FACTOR;
         } else {
-            return 1 + error * contrastFactor;
+            return 1 + error * CONTRAST_FACTOR;
         }
 
     }
 
-    public int[] brightnessHist(Color[][] pixels) {
+    public int[] brightnessHistogram(Color[][] pixels) {
         int[] hist = new int[255];
         for (int i = 0; i < pixels.length; i++) {
             for (int j = 0; j < pixels[0].length; j++) {
@@ -237,21 +240,16 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
     }
 
     public void keyPressed(KeyEvent e) {
-        if (e.getKeyCode() == KeyEvent.VK_R) {
-            pixels = rotate(pixels);
+        switch (e.getKeyCode()) {
+            case KeyEvent.VK_1 -> pixels = rotate(pixels);
+            case KeyEvent.VK_2 -> pixels = grayScale(pixels);
+            case KeyEvent.VK_3 -> pixels = flipHorizontal(pixels);
+            case KeyEvent.VK_4 -> pixels = flipVertical(pixels);
+            case KeyEvent.VK_5 -> pixels = gaussianBlur(pixels);
+            case KeyEvent.VK_6 -> pixels = contrast(pixels);
+            case KeyEvent.VK_7 -> pixels = applyVintageFilter(pixels);
         }
-        if (e.getKeyCode() == KeyEvent.VK_1) {
-            pixels = grayScale(pixels);
-        }
-        if (e.getKeyCode() == KeyEvent.VK_2) {
-            pixels = flipHorizontal(pixels);
-        }
-        if (e.getKeyCode() == KeyEvent.VK_3) {
-            pixels = gaussianBlur(pixels, 5);
-        }
-        if (e.getKeyCode() == KeyEvent.VK_4) {
-            pixels = contrast(pixels, 0.1);
-        }
+        repaint();
     }
 
     public void keyReleased(KeyEvent e) {
@@ -275,19 +273,4 @@ public class ImageEditorPanel extends JPanel implements KeyListener, MouseListen
     public void mouseReleased(MouseEvent e) {
     }
 
-    public void run() {
-        while (true) {
-            repaint();
-            delay(1000 / fps);
-        }
-
-    }
-
-    public void delay(int n) {
-        try {
-            Thread.sleep(n);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-        }
-    }
 }
